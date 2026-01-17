@@ -5,8 +5,109 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Consulta de Precios 2026</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-database-compat.js"></script>
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCtIagFFJBFRjvg5usXTm575YqOeeDE1G0",
+            authDomain: "mi-inventario-51f82.firebaseapp.com",
+            projectId: "mi-inventario-51f82",
+            storageBucket: "mi-inventario-51f82.firebasestorage.app",
+            messagingSenderId: "79417755416",
+            appId: "1:79417755416:web:e1bbab46cda2bdbb5da56d"
+        };
+
+        // Inicializar
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let productos = [];
+
+        // 1. CARGAR EXCEL (Tu lógica actual)
+        fetch('precios.xlsx') 
+            .then(res => res.arrayBuffer())
+            .then(data => {
+                const workbook = XLSX.read(data, { type: 'array' });
+                workbook.SheetNames.forEach(sheetName => {
+                    const sheet = workbook.Sheets[sheetName];
+                    const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                    const esTabla6 = (sheetName.trim().toLowerCase() === "tabla 6");
+
+                    json.forEach(fila => {
+                        if (esTabla6) {
+                            fila.forEach(celda => {
+                                if (celda) {
+                                    let contenido = String(celda).trim();
+                                    let codigoExtraido = contenido.split(/\s+/)[0].toUpperCase(); 
+                                    productos.push({
+                                        codigo: codigoExtraido,
+                                        datoCompleto: contenido,
+                                        tipo: 'completo'
+                                    });
+                                }
+                            });
+                        } else {
+                            for (let i = 0; i < fila.length; i += 3) {
+                                if (fila[i] && fila[i+2]) {
+                                    productos.push({
+                                        codigo: String(fila[i]).trim().toUpperCase(),
+                                        precio: fila[i+2],
+                                        tipo: 'precio'
+                                    });
+                                }
+                            }
+                        }
+                    });
+                });
+                console.log("Excel cargado");
+            });
+
+        // 2. FUNCIÓN PARA GUARDAR EN FIRESTORE
+        // Nota: En Firestore, si la colección 'consultas' no existe, se crea automáticamente al primer registro
+        async function registrarConsulta(codigo, estado) {
+            try {
+                await addDoc(collection(db, "consultas"), {
+                    codigo: codigo,
+                    estado: estado,
+                    fecha: new Date().toLocaleString(),
+                    timestamp: serverTimestamp()
+                });
+            } catch (e) {
+                console.error("Error al guardar: ", e);
+            }
+        }
+
+        // 3. LOGICA DE BÚSQUEDA
+        window.buscar = function() {
+            const input = document.getElementById('codigo');
+            const display = document.getElementById('resultado');
+            const btn = document.getElementById('btnBuscar');
+            const codigoBuscado = input.value.trim().toUpperCase();
+
+            if (!codigoBuscado) return;
+
+            const encontrado = productos.find(p => p.codigo === codigoBuscado || (p.tipo === 'completo' && p.datoCompleto.toUpperCase().startsWith(codigoBuscado)));
+
+            // Registro en Firestore
+            registrarConsulta(codigoBuscado, encontrado ? "Encontrado" : "No encontrado");
+
+            if (encontrado) {
+                display.className = "success";
+                if (encontrado.tipo === 'completo') {
+                    display.innerHTML = encontrado.datoCompleto;
+                } else {
+                    display.innerHTML = `Precio: $${encontrado.precio}`;
+                }
+                input.disabled = true;
+                btn.disabled = true;
+            } else {
+                display.className = "error";
+                display.innerHTML = "No encontrado";
+            }
+        }
+    </script>
 
     <style>
         body { font-family: 'Segoe UI', sans-serif; background-color: #e9ecef; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
@@ -30,101 +131,6 @@
     <button id="btnBuscar" onclick="buscar()">VER PRECIO</button>
     <div id="resultado"></div>
 </div>
-
-<script>
-    // CONFIGURACIÓN DE TU FIREBASE
-    const firebaseConfig = {
-        apiKey: "AIzaSyCtIagFFJBFRjvg5usXTm575YqOeeDE1G0",
-        authDomain: "mi-inventario-51f82.firebaseapp.com",
-        projectId: "mi-inventario-51f82",
-        storageBucket: "mi-inventario-51f82.firebasestorage.app",
-        messagingSenderId: "79417755416",
-        appId: "1:79417755416:web:e1bbab46cda2bdbb5da56d"
-    };
-
-    // Inicializar Firebase
-    firebase.initializeApp(firebaseConfig);
-    const database = firebase.database();
-
-    let productos = [];
-
-    // Cargar Excel
-    fetch('precios.xlsx') 
-        .then(res => res.arrayBuffer())
-        .then(data => {
-            const workbook = XLSX.read(data, { type: 'array' });
-            workbook.SheetNames.forEach(sheetName => {
-                const sheet = workbook.Sheets[sheetName];
-                const json = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-                const esTabla6 = (sheetName.trim().toLowerCase() === "tabla 6");
-
-                json.forEach(fila => {
-                    if (esTabla6) {
-                        fila.forEach(celda => {
-                            if (celda) {
-                                let contenido = String(celda).trim();
-                                let codigoExtraido = contenido.split(/\s+/)[0].toUpperCase(); 
-                                productos.push({
-                                    codigo: codigoExtraido,
-                                    datoCompleto: contenido,
-                                    tipo: 'completo'
-                                });
-                            }
-                        });
-                    } else {
-                        for (let i = 0; i < fila.length; i += 3) {
-                            if (fila[i] && fila[i+2]) {
-                                productos.push({
-                                    codigo: String(fila[i]).trim().toUpperCase(),
-                                    precio: fila[i+2],
-                                    tipo: 'precio'
-                                });
-                            }
-                        }
-                    }
-                });
-            });
-            console.log("Base de datos cargada");
-        });
-
-    // FUNCIÓN INVISIBLE PARA TU PANEL DE CONTROL
-    function registrarConsulta(codigo, estado) {
-        database.ref('consultas').push({
-            codigo: codigo,
-            estado: estado,
-            fecha: new Date().toLocaleString(),
-            timestamp: firebase.database.ServerValue.TIMESTAMP
-        });
-    }
-
-    function buscar() {
-        const input = document.getElementById('codigo');
-        const display = document.getElementById('resultado');
-        const btn = document.getElementById('btnBuscar');
-        const codigoBuscado = input.value.trim().toUpperCase();
-
-        if (!codigoBuscado) return;
-
-        const encontrado = productos.find(p => p.codigo === codigoBuscado || (p.tipo === 'completo' && p.datoCompleto.toUpperCase().startsWith(codigoBuscado)));
-
-        // REGISTRO EN FIREBASE
-        registrarConsulta(codigoBuscado, encontrado ? "Encontrado" : "No encontrado");
-
-        if (encontrado) {
-            display.className = "success";
-            if (encontrado.tipo === 'completo') {
-                display.innerHTML = encontrado.datoCompleto;
-            } else {
-                display.innerHTML = `Precio: $${encontrado.precio}`;
-            }
-            input.disabled = true;
-            btn.disabled = true;
-        } else {
-            display.className = "error";
-            display.innerHTML = "No encontrado";
-        }
-    }
-</script>
 
 </body>
 </html>
